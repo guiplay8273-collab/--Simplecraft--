@@ -1,0 +1,408 @@
+```html
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Simplecraft - Sobrevivência Brasil</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000; 
+            font-family: 'Segoe UI', sans-serif; 
+            touch-action: none; 
+            user-select: none; 
+            -webkit-user-select: none;
+        }
+        canvas { display: block; }
+        @media screen and (orientation: portrait) { #portrait-blocker { display: flex !important; } }
+        .ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .interactive { pointer-events: auto; }
+        .crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; border: 2px solid white; transform: translate(-50%, -50%); mix-blend-mode: difference; }
+        .pixel-border { border: 4px solid #3d3d3d; box-shadow: inset -4px -4px 0px #1d1d1d, inset 4px 4px 0px #8d8d8d; background: #4a4a4a; }
+        .craft-item { background: rgba(0,0,0,0.4); border: 2px solid #666; transition: all 0.2s; }
+        .craft-item:hover { background: rgba(255,255,255,0.1); border-color: #fbbf24; }
+        
+        .mobile-btn { 
+            width: 54px; 
+            height: 54px; 
+            background: rgba(255,255,255,0.15); 
+            border: 2px solid rgba(255,255,255,0.5); 
+            border-radius: 12px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            backdrop-filter: blur(4px);
+            -webkit-tap-highlight-color: transparent;
+        }
+        .mobile-btn:active { background: rgba(255,255,255,0.4); }
+        
+        .arrow-icon {
+            width: 0; height: 0; 
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 15px solid white;
+            pointer-events: none;
+        }
+        .arrow-up { transform: rotate(0deg); }
+        .arrow-down { transform: rotate(180deg); }
+        .arrow-left { transform: rotate(-90deg); }
+        .arrow-right { transform: rotate(90deg); }
+
+        .slot-card { background: #2d2d2d; cursor: pointer; transition: transform 0.2s; }
+        .slot-card:hover { transform: translateY(-5px); border-color: #fbbf24; }
+
+        #game-msg {
+            position: absolute; top: 20%; left: 50%; transform: translateX(-50%);
+            color: white; font-weight: bold; font-size: 1.5rem; text-shadow: 2px 2px 4px black;
+            opacity: 0; transition: opacity 0.5s; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="portrait-blocker" class="hidden fixed inset-0 bg-slate-900 z-[100] flex-col items-center justify-center text-white p-6 text-center">
+        <h2 class="text-2xl font-bold">Gire o celular</h2>
+        <p class="text-slate-400">O jogo requer modo paisagem.</p>
+    </div>
+
+    <div id="setup-screen" class="ui-overlay flex flex-col items-center justify-center bg-[#0f172a] z-[70] interactive">
+        <h1 class="text-5xl text-white font-black mb-8 italic">SIMPLECRAFT</h1>
+        <div class="flex gap-4">
+            <button onclick="setDevice('desktop')" class="pixel-border p-6 text-white w-48 hover:scale-105 transition-transform">💻 COMPUTADOR</button>
+            <button onclick="setDevice('mobile')" class="pixel-border p-6 text-white w-48 hover:scale-105 transition-transform">📱 CELULAR</button>
+        </div>
+    </div>
+
+    <div id="save-screen" class="hidden ui-overlay flex flex-col items-center justify-center bg-[#1a1a1a] z-[60] interactive">
+        <h2 class="text-2xl text-white font-bold mb-8 uppercase tracking-widest">Selecionar Mundo</h2>
+        <div class="grid grid-cols-3 gap-6 w-full max-w-4xl px-4">
+            <div onclick="handleSlotClick(1)" class="slot-card pixel-border p-6 text-white text-center">
+                <p class="text-[10px] text-gray-500 mb-2">MUNDO_01.DAT</p>
+                <div id="info-1">Vazio</div>
+            </div>
+            <div onclick="handleSlotClick(2)" class="slot-card pixel-border p-6 text-white text-center">
+                <p class="text-[10px] text-gray-500 mb-2">MUNDO_02.DAT</p>
+                <div id="info-2">Vazio</div>
+            </div>
+            <div onclick="handleSlotClick(3)" class="slot-card pixel-border p-6 text-white text-center">
+                <p class="text-[10px] text-gray-500 mb-2">MUNDO_03.DAT</p>
+                <div id="info-3">Vazio</div>
+            </div>
+        </div>
+        <button onclick="location.reload()" class="mt-8 text-gray-500 text-xs underline">Voltar</button>
+    </div>
+
+    <div id="game-hud" class="hidden ui-overlay">
+        <div id="game-msg"></div>
+        <div class="crosshair"></div>
+        <div class="absolute top-4 left-4 p-3 pixel-border text-white text-xs font-mono min-w-[150px]">
+            <p id="hud-time">🌞 DIA</p>
+            <p id="hud-inv">🪓 Mad: 0 | 🪨 Ped: 0</p>
+            <p id="hud-items" class="text-blue-300">📦 Blocos: 0 | 🚪 Portas: 0</p>
+            <p id="hud-tools" class="text-yellow-400 mt-1">Equipado: Mão</p>
+        </div>
+        <div class="absolute top-4 right-4 interactive flex gap-2">
+            <button onclick="toggleCrafting()" class="pixel-border px-4 py-2 text-white font-bold hover:bg-yellow-600">🛠️ CRAFT (C)</button>
+            <button onclick="saveAndExit()" class="pixel-border px-4 py-2 text-white font-bold hover:bg-red-600">💾 SALVAR</button>
+        </div>
+
+        <div id="mobile-controls" class="hidden interactive">
+            <div class="absolute bottom-8 left-8 grid grid-cols-3 gap-3">
+                <div></div>
+                <div class="mobile-btn" ontouchstart="keys['KeyW']=true" ontouchend="keys['KeyW']=false">
+                    <div class="arrow-icon arrow-up"></div>
+                </div>
+                <div></div>
+                <div class="mobile-btn" ontouchstart="keys['KeyA']=true" ontouchend="keys['KeyA']=false">
+                    <div class="arrow-icon arrow-left"></div>
+                </div>
+                <div class="mobile-btn" ontouchstart="keys['KeyS']=true" ontouchend="keys['KeyS']=false">
+                    <div class="arrow-icon arrow-down"></div>
+                </div>
+                <div class="mobile-btn" ontouchstart="keys['KeyD']=true" ontouchend="keys['KeyD']=false">
+                    <div class="arrow-icon arrow-right"></div>
+                </div>
+            </div>
+            <div class="absolute bottom-8 right-8 flex flex-col gap-4">
+                <button class="pixel-border bg-white/20 text-white font-bold py-4 px-6 rounded-xl active:bg-white/40" onclick="handleAction()">AÇÃO</button>
+                <div class="flex gap-2">
+                    <button class="pixel-border bg-blue-500/40 text-white font-bold py-4 px-4 rounded-xl active:bg-blue-500/60" onclick="placeBlock()">BLOCO</button>
+                    <button class="pixel-border bg-green-500/40 text-white font-bold py-4 px-4 rounded-xl active:bg-green-500/60" ontouchstart="keys['Space']=true" ontouchend="keys['Space']=false">PULO</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="crafting-menu" class="hidden ui-overlay flex items-center justify-center bg-black/80 z-[80] interactive">
+        <div class="pixel-border p-8 w-full max-w-4xl max-h-[80vh] overflow-y-auto text-white">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold uppercase tracking-widest">Bancada de Trabalho</h2>
+                <button onclick="toggleCrafting()" class="text-red-500 font-bold">[X] FECHAR</button>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div onclick="craftItem('picareta')" class="craft-item p-4 rounded cursor-pointer border-yellow-600/30">
+                    <div class="text-xl">⛏️ Picareta</div>
+                    <div class="text-[10px] text-gray-400">Para minerar pedra</div>
+                    <div class="text-[11px] mt-2 text-yellow-500">15 Madeiras</div>
+                </div>
+                <div onclick="craftItem('machado')" class="craft-item p-4 rounded cursor-pointer">
+                    <div class="text-xl">🪓 Machado</div>
+                    <div class="text-[10px] text-gray-400">Pega mais madeira</div>
+                    <div class="text-[11px] mt-2 text-yellow-500">9 Pedras, 7 Madeiras</div>
+                </div>
+                <div onclick="craftItem('espada')" class="craft-item p-4 rounded cursor-pointer">
+                    <div class="text-xl">⚔️ Espada</div>
+                    <div class="text-[10px] text-gray-400">Combate monstros</div>
+                    <div class="text-[11px] mt-2 text-yellow-500">10 Madeiras, 10 Pedras</div>
+                </div>
+                <div onclick="craftItem('bloco')" class="craft-item p-4 rounded cursor-pointer border-blue-400/30">
+                    <div class="text-xl">🧱 Bloco de Pedra</div>
+                    <div class="text-[10px] text-gray-400">Ótimo para fazer casas</div>
+                    <div class="text-[11px] mt-2 text-blue-400">10 Pedras</div>
+                </div>
+                <div onclick="craftItem('porta')" class="craft-item p-4 rounded cursor-pointer border-green-400/30">
+                    <div class="text-xl">🚪 Porta</div>
+                    <div class="text-[10px] text-gray-400">Segurança em 1° lugar</div>
+                    <div class="text-[11px] mt-2 text-green-400">10 Madeiras</div>
+                </div>
+                <div onclick="craftItem('cama')" class="craft-item p-4 rounded cursor-pointer border-purple-400/30">
+                    <div class="text-xl">🛌 Cama</div>
+                    <div class="text-[10px] text-gray-400">Pule a noite, bons sonhos</div>
+                    <div class="text-[11px] mt-2 text-purple-400">15 Madeiras, 5 Pedras</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SAVE_KEY = "Simplecraft_v3_Slot_";
+        let currentSlot = 1;
+        let device = 'desktop';
+        let inventory = { madeira: 0, pedra: 0, blocos: 0, portas: 0 };
+        let tools = { picareta: false, machado: false, espada: false };
+        let time = 0; 
+        let isNight = false;
+        let gameActive = false;
+        let worldObjects = [];
+        let placedObjects = [];
+        let monsters = [];
+
+        // THREE.JS
+        let scene, camera, renderer, raycaster, clock, ambientLight, sunLight;
+        let keys = {};
+        const player = { height: 1.8, speed: 0.12, velY: 0, onGround: true, health: 100 };
+
+        let touchStart = { x: 0, y: 0 };
+        let isLooking = false;
+
+        function setDevice(type) {
+            device = type;
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('save-screen').classList.remove('hidden');
+            updateSaveSlotsUI();
+        }
+
+        function updateSaveSlotsUI() {
+            for(let i=1; i<=3; i++) {
+                const data = localStorage.getItem(SAVE_KEY + i);
+                const info = document.getElementById('info-'+i);
+                if(data) {
+                    const world = JSON.parse(data);
+                    info.innerHTML = `<span class="text-green-400 font-bold">MUNDO ATIVO</span><br><span class="text-[10px] opacity-50">M:${world.inv.madeira} P:${world.inv.pedra} B:${world.inv.blocos}</span>`;
+                } else {
+                    info.innerHTML = `<span class="text-gray-500 uppercase">Novo Mundo</span>`;
+                }
+            }
+        }
+
+        function handleSlotClick(slot) {
+            currentSlot = slot;
+            const data = localStorage.getItem(SAVE_KEY + slot);
+            const worldData = data ? JSON.parse(data) : {
+                inv: { madeira: 0, pedra: 0, blocos: 0, portas: 0 },
+                tools: { picareta: false, machado: false, espada: false },
+                pos: { x: 0, y: 1.8, z: 5 },
+                time: 0,
+                placed: []
+            };
+            launchGame(worldData);
+        }
+
+        function launchGame(worldData) {
+            inventory = worldData.inv;
+            tools = worldData.tools;
+            time = worldData.time || 0;
+
+            document.getElementById('save-screen').classList.add('hidden');
+            document.getElementById('game-hud').classList.remove('hidden');
+            if(device === 'mobile') document.getElementById('mobile-controls').classList.remove('hidden');
+            
+            initThree(worldData.pos, worldData.placed || []);
+            updateHUD();
+        }
+
+        function initThree(startPos, savedBuildings) {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(startPos.x, startPos.y, startPos.z);
+            camera.rotation.order = 'YXZ';
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.body.appendChild(renderer.domElement);
+
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            sunLight.position.set(50, 100, 50);
+            scene.add(sunLight);
+
+            raycaster = new THREE.Raycaster();
+            clock = new THREE.Clock();
+
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), new THREE.MeshLambertMaterial({ color: 0x3d5a34 }));
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            // Gerar Natureza
+            for(let i=0; i<150; i++) {
+                const x = (Math.random() - 0.5) * 400;
+                const z = (Math.random() - 0.5) * 400;
+                if(Math.abs(x) < 5 && Math.abs(z) < 5) continue;
+                if(Math.random() > 0.4) createTree(x, z);
+                else createRock(x, z);
+            }
+
+            savedBuildings.forEach(b => {
+                if(b.type === 'bloco') buildBlock(b.x, b.y, b.z, false);
+                if(b.type === 'porta') buildDoor(b.x, b.y, b.z, false);
+            });
+
+            window.addEventListener('keydown', e => { 
+                keys[e.code] = true; 
+                if(e.code === 'KeyC') toggleCrafting();
+                if(e.code === 'KeyE') handleAction();
+                if(e.code === 'Digit1') placeBlock();
+            });
+            window.addEventListener('keyup', e => keys[e.code] = false);
+            window.addEventListener('mousedown', (e) => {
+                if(e.button === 0) handleAction();
+                if(e.button === 2) placeBlock();
+            });
+            window.addEventListener('contextmenu', e => e.preventDefault());
+
+            if(device === 'desktop') {
+                document.body.requestPointerLock();
+                window.addEventListener('mousemove', e => {
+                    if (document.pointerLockElement) {
+                        updateCameraRotation(e.movementX * 0.002, e.movementY * 0.002);
+                    }
+                });
+            } else {
+                setupMobileTouch();
+            }
+
+            gameActive = true;
+            animate();
+        }
+
+        function setupMobileTouch() {
+            window.addEventListener('touchstart', e => {
+                const touch = e.touches[e.touches.length - 1];
+                if(touch.clientX > window.innerWidth / 2) {
+                    isLooking = true;
+                    touchStart.x = touch.clientX;
+                    touchStart.y = touch.clientY;
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchmove', e => {
+                if(isLooking) {
+                    for(let i=0; i<e.touches.length; i++) {
+                        const touch = e.touches[i];
+                        if(touch.clientX > window.innerWidth / 2) {
+                            const dx = touch.clientX - touchStart.x;
+                            const dy = touch.clientY - touchStart.y;
+                            updateCameraRotation(dx * 0.006, dy * 0.006);
+                            touchStart.x = touch.clientX;
+                            touchStart.y = touch.clientY;
+                            break;
+                        }
+                    }
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchend', e => { if(e.touches.length === 0) isLooking = false; });
+        }
+
+        function updateCameraRotation(dx, dy) {
+            camera.rotation.y -= dx;
+            camera.rotation.x -= dy;
+            camera.rotation.x = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, camera.rotation.x));
+        }
+
+        function createTree(x, z) {
+            const group = new THREE.Group();
+            const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4, 0.8), new THREE.MeshLambertMaterial({color: 0x4d2d18}));
+            trunk.position.y = 2;
+            trunk.userData = { type: 'arvore', group: group }; // Referência ao grupo
+            group.add(trunk);
+            const leaves = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3), new THREE.MeshLambertMaterial({color: 0x2d5a27}));
+            leaves.position.y = 4.5;
+            group.add(leaves);
+            group.position.set(x, 0, z);
+            scene.add(group);
+            worldObjects.push(trunk);
+        }
+
+        function createRock(x, z) {
+            const rock = new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 2), new THREE.MeshLambertMaterial({color: 0x666666}));
+            rock.position.set(x, 0.6, z);
+            rock.userData = { type: 'pedra' };
+            scene.add(rock);
+            worldObjects.push(rock);
+        }
+
+        function spawnMonster() {
+            if(monsters.length > 8) return;
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 20 + Math.random() * 15;
+            const x = camera.position.x + Math.cos(angle) * dist;
+            const z = camera.position.z + Math.sin(angle) * dist;
+
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshLambertMaterial({color: 0xff0000}));
+            body.position.set(x, 1, z);
+            body.userData = { type: 'monstro', health: 3 };
+            scene.add(body);
+            monsters.push(body);
+        }
+
+        function handleAction() {
+            if(!gameActive) return;
+            raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+            const intersects = raycaster.intersectObjects([...worldObjects, ...monsters, ...placedObjects]);
+
+            if(intersects.length > 0 && intersects[0].distance < 5) {
+                const obj = intersects[0].object;
+                const type = obj.userData.type;
+
+                if(type === 'arvore') {
+                    inventory.madeira += tools.machado ? 12 : 5;
+                    // REMOVE O GRUPO INTEIRO (Tronco + Folhas)
+                    if(obj.userData.group) {
+                        scene.remove(obj.userData.group);
+                    }
+                    removeObject(obj, worldObjects);
+                } else if(type === 'pedra') {
+                    if(tools.picareta) {
+                        inventory.pedra += 8;
+                        removeObject(obj, worldObjects);
+                    } else showMsg("Você precisa de uma Picareta!");
+                } else if(type === 'monstro') {
+                    obj.userData.health -= tools.espada ? 3 : 1;
+                    if(obj.userData.health <= 0) removeObj
